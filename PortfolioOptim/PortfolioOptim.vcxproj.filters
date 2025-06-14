@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="PortOptTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="TestDriver.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="WorkingHorses.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="Weights.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source">
+      <UniqueIdentifier>{18062ed0-2c4e-416b-b2e0-036d308f03c9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Include">
+      <UniqueIdentifier>{9611c66f-48ea-47cc-aba4-47f1c2f00021}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="PortOptTests.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="WorkingHorses.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="Weights.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

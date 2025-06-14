@@ -18,102 +18,6 @@ typedef std::vector<RiskReturnPair> RiskRetVector;
 
 
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-void PrintMatrix( Eigen::MatrixXd mat, size_t width, size_t precision )
-{
-    for ( int i = 0; i < mat.rows(); i++ )
-    {
-        for ( int j = 0; j < mat.cols(); j++ ) 
-            std::cout << std::fixed << std::setprecision(precision) << std::setw(width) << mat(i, j);
-        std::cout << "\n";
-    }
-
-    std::cout << std::endl;
-
-}  // end EigenTests::PrintMatrix
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-Eigen::MatrixXd generateWeightVecMat( size_t rows, size_t cols , std::optional<unsigned int> seed = std::nullopt ) 
-{
-    //-> Generate a (rows x cols) matrix with random uniform coefficients in the range [0, 1],
-    //   the column sums of which are normalized to 1. The columns can be interpreted as weight vectors.
-    
-    //-> Initialize a random number generator
-    std::random_device rd;
-    std::mt19937 gen( seed.has_value() ? std::mt19937(seed.value()) : std::mt19937(rd()) );
-    std::uniform_real_distribution<> distrib( 0.0, 1.0 );
-
-    //-> Generate the (m x n) matrix with random uniform coefficients
-    Eigen::MatrixXd matrix( rows, cols );
-    for ( int i = 0; i < rows; i++ ) for ( int j = 0; j < cols; j++ ) matrix(i, j) = distrib( gen );
-   
-    //-> Normalize each column so that the column sums are 1
-    for ( size_t j = 0; j < cols; j++ ) 
-    {
-        double colSum = matrix.col(j).sum();
-        matrix.col(j) = ( colSum > 0 ) ? Eigen::VectorXd(matrix.col(j)/colSum) : Eigen::VectorXd::Constant(rows, 1/int(rows));
-    }
-
-    return matrix;
-
-}  // end generateWeightVecMat
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-double CalcAvgPortPerf( const VectorXd& stockPerfAvg, const VectorXd& weights )
-{
-    //-> Calculate the average performance of a portfolio given the average performance 
-    //   of each stock and the weights of each stock in the portfolio.
-
-    const size_t numStocks = stockPerfAvg.rows();
-
-    if ( weights.rows() != numStocks ) throw std::invalid_argument( "weights.size() != stockPerfAvg.size()" );
-    if ( weights.sum() - 1 > 1e-6 )    throw std::invalid_argument( "weights.sum() != 1" ); 
-
-    return stockPerfAvg.dot( weights ); // Calculate the dot product
-
-}  // CalcAvgPortPerf
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-VectorXd& CalcAvgStockPerformances( const MatrixXd& perfMat, 
-                                    VectorXd& stockPerformances )   
-{
-    //-> Calculate the average annual performance of each stock in the portfolio,
-    //   given the performance matrix of the stocks over time with each stock 
-    //   starting with 0%.
-    //   
-    //   The average performances are calculated by fitting a linear regression line
-    //   to the log of the normalized performances (starting with 100% for each stock)
-    //   through the origin [log(100%)=0 at t = 0]. 
-    //   The slope of this line is assumed to be a measure for the average performance.
-
-    const size_t numStocks = perfMat.rows();
-    const size_t numClosPrice = perfMat.cols();
-    stockPerformances.resize( numStocks, 1 );
-
-    MatrixXd logPerfMat = (perfMat.array() + 1).log();	// Take natural log of normalized performance (starting with 100%)
-
-    // Create vector containing numbers from 0 up to (but not including) n
-    VectorXd X(numClosPrice);
-    X = VectorXd::LinSpaced( numClosPrice, 0, numClosPrice - 1 );  // n elements, from 0 to n equally spaced
-
-    VectorXd logSlope( numStocks, 1 );
-
-    // Linear regression using matrix algebra: slope = (X'X)^(-1) * X'Y
-    logSlope = ( X.transpose() * X ).inverse() * X.transpose() * logPerfMat.transpose();
-    VectorXd avgAnnPerf = logSlope.array().exp() - 1;
-
-    return avgAnnPerf;
-
-}  // CalcAvgStockPerformances
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 RiskInterval GetRiskInterval( const RiskRetVector& riskRetVec )
 {
     auto minRiskPair = std::min_element( riskRetVec.begin(), riskRetVec.end(),
@@ -131,40 +35,6 @@ RiskInterval GetRiskInterval( const RiskRetVector& riskRetVec )
     return { minRiskPair->_risk, maxRiskPair->_risk };
 
 }  // end GetRiskInterval
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-static double RetIntervUpbTestCase( double risk )
-{
-    return  -1.5*risk*risk + 6.5*risk - 4;
-}
-//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-RiskRetVector& populateRiskRetVecTestCase( RiskRetVector& riskRetVec, 
-                                           RiskInterval riskInterv, 
-                                           std::function<double(double)> retIntervUpbFunc,
-                                           size_t nTuples                                  )
-{
-    //-> Generate nTuples of random risk-return pairs within the specified intervals
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<> riskDistrib( riskInterv.lwb, riskInterv.upb );
-
-    for ( size_t i = 0; i < nTuples; i++ )
-    {
-        const double risk = riskDistrib( gen );
-        const ReturnInterval retInterv = { 0, retIntervUpbFunc(risk) }; 
-        std::uniform_real_distribution<> retDistrib( retInterv.lwb, retInterv.upb );
-        double ret = retDistrib(gen);
-        riskRetVec.push_back({ risk, ret });
-    }
-
-    return riskRetVec;
-
-}  // end populateRiskRetVecTestCase
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
@@ -256,6 +126,29 @@ MatrixXd& CovarianceMatrix( const MatrixXd& dataMat, MatrixXd& covMat, bool samp
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 int main() 
 {
+    //===========
+    // Test Case 
+    //===========
+
+    const size_t nRiskRetTuples = 1000;
+    const size_t nRiskBars      =   20;
+
+    RiskRetVector riskRetVec( nRiskRetTuples );
+    const RiskInterval riskInterv = { 1.0, 3.0 };
+    populateRiskRetVecTestCase( riskRetVec, riskInterv, RetIntervUpbTestCase, nRiskRetTuples );
+
+    RiskRetVector riskRetTuplesBelowFrontier;
+    riskRetTuplesBelowFrontier = 
+        GetRiskReturnTuplesBelowFrontier( riskRetVec, riskRetTuplesBelowFrontier, riskInterv, nRiskBars );
+    
+    for ( int i = 0; i < nRiskBars; i++ )
+    {
+        std::cout << std::fixed << std::setprecision(6) << std::setw(9) 
+                  << riskRetTuplesBelowFrontier[i]._risk << ", " 
+                  << riskRetTuplesBelowFrontier[i]._return << std::endl;
+    }
+
+    /*
     // Performances in % (01.2015-01.205) for Storm Fund II, Quantex Global Value, Polar Capital Insurance, UniGlobal
     const size_t numAssets =  4;
     const size_t numQuotes = 11;    // including starting point (e.g. =11 for 10 EOY values)
@@ -293,24 +186,6 @@ int main()
     const size_t nRiskBars = 20;
 
 
-    //===========
-    // Test Case 
-    //===========
-
-    const RiskInterval riskInterv = { 1.0, 3.0 };
-    populateRiskRetVecTestCase( riskRetVec, riskInterv, RetIntervUpbTestCase, nTuples );
-
-    RiskRetVector riskRetTuplesBelowFrontier;
-    riskRetTuplesBelowFrontier = 
-        GetRiskReturnTuplesBelowFrontier( riskRetVec, riskRetTuplesBelowFrontier, riskInterv, nRiskBars );
-    
-    for ( int i = 0; i < nRiskBars; i++ )
-    {
-        std::cout << std::fixed << std::setprecision(6) << std::setw(9) 
-                  << riskRetTuplesBelowFrontier[i]._risk << ", " 
-                  << riskRetTuplesBelowFrontier[i]._return << std::endl;
-    }
-
 	MatrixXd data(10, 4); // 10 measurements of 4 variables
 	data << 
 		  -0.080600,   0.026200,   0.033600,   0.066700,
@@ -329,7 +204,7 @@ int main()
     covMat = CovarianceMatrix( data, covMat, sampleCov );
     std::cout << "\nCovariance Matrix:\n";
     PrintMatrix(covMat, 9, 6);
-
+    */
     return 0;
 }
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<

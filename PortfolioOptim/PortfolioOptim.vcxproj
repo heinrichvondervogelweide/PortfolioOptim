@@ -19,15 +19,23 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Source.cpp" />
+    <ClCompile Include="PortOptTests.cpp" />
+    <ClCompile Include="Weights.cpp" />
+    <ClCompile Include="WorkingHorses.cpp" />
+    <ClCompile Include="TestDriver.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="PortOptTests.h" />
+    <ClInclude Include="Weights.h" />
+    <ClInclude Include="WorkingHorses.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{c88690ce-ddf8-4596-b7bb-2958c4a5e9c8}</ProjectGuid>
-    <RootNamespace>WorkingHorses_Testbed</RootNamespace>
+    <RootNamespace>PortfolioOptim</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ProjectName>WorkingHorses_Testbed</ProjectName>
+    <ProjectName>PotfolioOptim</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -126,7 +134,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>D:\EigenLinearAlgebra\eigen-3.4.0;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\MySDK\third_party\boost_1_88_0;D:\MySDK\third_party\Pagmo\include;D:\MySDK\third_party\Eigen3;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
@@ -142,7 +150,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>D:\EigenLinearAlgebra\eigen-3.4.0;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\MySDK\third_party\boost_1_88_0;D:\MySDK\third_party\Pagmo\include;D:\MySDK\third_party\Eigen3;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
