@@ -339,7 +339,7 @@ int test_populateRiskRetVec_RandomlyNotWeightRelated()
 
 int test_populateSimplexGrid() 
 {
-    size_t mAssets     =  4;   // number of weights
+    size_t mAssets     =  4;  // number of weights
     size_t kResolution =  4;  // grid resolution (higher = more vectors)
 
     //-> Number of possible weight vectors for mAssets with kResolution is given by 
@@ -356,7 +356,8 @@ int test_populateSimplexGrid()
         std::cout<< std::fixed << std::setprecision(4) << std::setw(8) << vec.transpose() << "\n";
 
     return 0;
-}
+
+}  // end test_populateSimplexGrid
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
@@ -531,10 +532,55 @@ int test_getEfficientFrontier_FromRandomWeights()
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 int test_find_k()
 {
-    PortfolioOptimizer optimizer( 15, 818800000 );
-    optimizer.initialize();
+    const size_t numAssets = 15;
+    const size_t minTotalNumGridPoints = 818800000;
+    
+    PortfolioOptimizer optimizer( numAssets, minTotalNumGridPoints );
+    optimizer.find_k( numAssets, uint128_t(minTotalNumGridPoints) );
 
     return 0;
 
 }  // end test_find_k
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+ 
+ 
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+int test_SharpeRankTable()
+{
+    //->Test example:
+    //  Performances in % (01.2015-01.2025) for Storm Fund II, Quantex Global Value, Polar Capital Insurance, UniGlobal
+    const size_t numAssets = 4;
+    const size_t numQuotes = 11;    // including starting point (e.g. =11 for 10 EOY values)
+    Eigen::MatrixXd mat_performanceTable(numAssets, numQuotes);
+    mat_performanceTable <<
+               0, -0.0806,  0.0668,  0.1843,  0.2039,  0.2524,  0.2468,  0.4013,  0.4740,  0.6105,  0.7260,
+               0,  0.0262,  0.1392,  0.2969,  0.3098,  0.5822,  0.9335,  1.4879,  1.7845,  2.0384,  2.2784,
+               0,  0.0336,  0.2019,  0.2306,  0.2351,  0.6126,  0.4414,  0.7868,  1.1001,  1.1801,  1.8965,
+               0,  0.0667,  0.1291,  0.2164,  0.1480,  0.5117,  0.6515,  1.2296,  0.9177,  1.2997,  1.8694;
+    
+    //-> Calculate average performance per stock
+    Eigen::VectorXd avgPerfVec(numAssets);
+    avgPerfVec = CalcAvgStockPerformances( mat_performanceTable, avgPerfVec );
+
+    //-> Calculate simple relative returns per stock (for results see: test_CalcRelRetMatrices)
+    Eigen::MatrixXd simpleRelRet;
+    simpleRelRet = CalcSimpleRelRetMatrix( mat_performanceTable, simpleRelRet );
+
+    //-> Calculate the covariance matrix of the stock performances
+    Eigen::MatrixXd mat_portfolioCov(numAssets, numAssets);
+    mat_portfolioCov = CalcCovarianceMatrix( simpleRelRet.transpose(), mat_portfolioCov );
+
+    //-> Portfolio Optimizer 
+    size_t minNumGridPoints = 25;  // min number of weight vectors on simplex grid
+    PortfolioOptimizer optimizer( numAssets, minNumGridPoints );
+    optimizer.initialize( avgPerfVec, mat_portfolioCov );  
+    optimizer.iterate();
+
+    const SharpeRankTable* p_rankTable = optimizer.getRankTable();
+    const Eigen::MatrixXd table = p_rankTable->getTable();
+    PrintMatrix( table.block(0,4,35,3), 9, 5 );
+
+    return 0;
+
+}  // end test_SharpeRankTable
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>

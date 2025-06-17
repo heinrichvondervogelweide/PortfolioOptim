@@ -117,7 +117,7 @@ double CalcAvgPortPerf( const Eigen::VectorXd& stockPerfAvg, const Eigen::Vector
 
     if ( weights.rows() != numStocks ) throw std::invalid_argument( "weights.size() != stockPerfAvg.size()" );
     if ( weights.sum() - 1 > 1e-6 )    throw std::invalid_argument( "weights.sum() != 1" ); 
-
+    
     return stockPerfAvg.dot( weights ); // Calculate the dot product
 
 }  // CalcAvgPortPerf
@@ -464,12 +464,34 @@ Eigen::MatrixXcd SanitizeUsingLambda( const Eigen::MatrixXcd& matrix )
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
-const size_t SimplexGridResolutionLwb = 4;   // Lower bound for the simplex grid resolution
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+const Range<size_t, 0, 100> PercentageOfGridPointsUsedToDetermineTheMinMaxWeightRange( 10 );
+const size_t                SimplexGridResolutionLwb = 4;           // Lower bound for the simplex grid resolution
+const size_t                MaxIterations = 100;                    // Maximum number of iterations for the optimization process
+const double                MaxAllowedTopWeightSpread = 1.0E-4;     // Minimum spread the top weights in the optimization process
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-void PortfolioOptimizer::initialize()
+#include <sstream>
+#include <string>
+#include <iostream>
+
+void PortfolioOptimizer::initialize( Eigen::VectorXd avgPerfVec, Eigen::MatrixXd portfolioCov )
 {
+    if (avgPerfVec.size() != myNumAssets)
+        throw std::invalid_argument( "avgPerfVec.size() != myNumAssets" );
+    if (portfolioCov.rows() != myNumAssets || portfolioCov.cols() != myNumAssets)
+        throw std::invalid_argument( "portfolioCov must be a square matrix of size myNumAssets" );
+    if (portfolioCov.hasNaN())
+        throw std::invalid_argument(" portfolioCov contains NaN values" );
+
+    myAvgPerfVec   = avgPerfVec;
+    myPortfolioCov = portfolioCov;
+
+    //-> Initialize the simplex grid, create Sharpe Ratio Rank Table,
+    //   and populate the "Driving Weight Section" of the rank table with weight vectors
+    //
 	if ( myMinTotalNumOfGridPoints == 0 )  
 	{
 		mySimplexGridResolution = SimplexGridResolutionLwb;
@@ -480,7 +502,199 @@ void PortfolioOptimizer::initialize()
         if (mySimplexGridResolution < SimplexGridResolutionLwb)  mySimplexGridResolution = SimplexGridResolutionLwb; // Ensure the resolution is not below the lower bound
     }
 
+    long double n = boost::math::binomial_coefficient<long double>( mySimplexGridResolution + myNumAssets - 1, myNumAssets - 1 );
+    myNumWeightVectors = static_cast<uint128_t>( n );
+    if ( myNumWeightVectors > std::numeric_limits<std::size_t>::max() )  throw std::overflow_error( "size_t overflow" );
+
+    std::ostringstream oss;
+    oss << "Rank Table for " << myNumAssets << " assets with simplex grid resolution k = " << mySimplexGridResolution 
+        << " and " << myNumWeightVectors << " weight vectors";
+    const std::string tableName = oss.str();
+
+    p_myRankTable = new SharpeRankTable( size_t(n), myNumAssets, tableName );
+    Eigen::Block<Eigen::MatrixXd> weights = p_myRankTable->block_DrivingWeights();
+    weights.setZero();   // Initialize the driving weights block to zero
+
+    std::vector<Eigen::VectorXd> weight_vectors = generate_simplex_grid( myNumAssets, mySimplexGridResolution );
+
+    size_t i = 0;
+    for ( const auto& vec : weight_vectors )  weights.row(i++) = vec;  // Copy the generated weight vectors into the driving weights block
+
 }  // end PortfolioOptimizer::initialize
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+#include "PortOptTests.h"
+
+void PortfolioOptimizer::iterate()
+{
+    size_t nIterations = 0;
+
+    while ( ++nIterations <= MaxIterations )
+    {
+        //-> Calculate the average performance, risk, and Sharpe Ratio for each weight vector in the rank table
+        CalcPerformance();
+
+        //-> Sort the table by Sharpe Ratio in descending order
+        p_myRankTable->sort();  
+
+        //-> For the upper subset of weights in the sorted table, 
+        //   determine the minimum and maximum weights for each asset
+        getMinMaxWeights();
+
+        for ( size_t i = 0; i < myNumAssets; i++ )  std::cout << std::setw(7) << std::fixed << std::setprecision(2) << myMinWeight[i]*100;
+        std::cout << "\n";
+        for ( size_t i = 0; i < myNumAssets; i++ )  std::cout << std::setw(7) << std::fixed << std::setprecision(2) << myMaxWeight[i]*100;
+        std::cout << "\n\n";
+
+        if ( topWeightSpread() < MaxAllowedTopWeightSpread )  break;  // Convergence achieved, stop the iteration
+
+        //-> Downscale the weight ranges for the individual assets to the range
+        //   covered by the top nTop weight vectors
+        downscaleWeightRanges();
+
+        //-> Normalize the downscaled weights so that they sum up to 1
+        normalizeWeights();
+
+        //-> Take the normalized weights and copy them into the driving weights block
+        const Eigen::Block<Eigen::MatrixXd> normWeightMat = p_myRankTable->block_NormalizedWeights();
+              Eigen::Block<Eigen::MatrixXd> driveWeightMat  = p_myRankTable->block_DrivingWeights();
+        driveWeightMat = normWeightMat;  // Copy the normalized weights back to the driving weights block
+
+    }  // end while
+
+    const Eigen::MatrixXd table = p_myRankTable->getTable();
+    PrintMatrix( 100*table.block(0,0,35,4), 9, 2 );
+
+}  // end PortfolioOptimizer::iterate
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+#include "PortOptTests.h"
+
+void PortfolioOptimizer::CalcPerformance()
+{
+    if ( myNumWeightVectors > std::numeric_limits<std::size_t>::max() )  throw std::overflow_error( "size_t overflow" );
+    size_t numWeightVectors = size_t( myNumWeightVectors );
+
+    const Eigen::Block<Eigen::MatrixXd> weightMat = p_myRankTable->block_DrivingWeights();
+
+    Eigen::Block<Eigen::MatrixXd> returnVec = p_myRankTable->col_Return();
+    Eigen::Block<Eigen::MatrixXd> riskVec   = p_myRankTable->col_Risk  ();
+    Eigen::Block<Eigen::MatrixXd> sharpeVec = p_myRankTable->col_Sharpe();
+
+    for ( int i = 0; i < numWeightVectors; i++ ) 
+    {
+        Eigen::VectorXd weights = weightMat.row(i); 
+        returnVec(i, 0) = CalcAvgPortPerf( myAvgPerfVec, weights );
+        riskVec  (i, 0) = CalcAvgPortVola( myPortfolioCov, weights );
+        sharpeVec(i, 0) = returnVec(i, 0) / riskVec(i, 0);  
+    }
+
+}  // end PortfolioOptimizer::CalcPerformance
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+void PortfolioOptimizer::getMinMaxWeights()
+{
+    size_t n    = size_t( myNumWeightVectors );
+    size_t nTop = size_t( n * PercentageOfGridPointsUsedToDetermineTheMinMaxWeightRange/100.0 ) + 1;
+
+    const Eigen::Block<Eigen::MatrixXd> weightMat = p_myRankTable->block_DrivingWeights();
+
+    for ( size_t i = 0; i < myNumAssets; i++ )
+    {
+        myMinWeight[i] = weightMat.col(i).head(nTop).minCoeff();
+        myMaxWeight[i] = weightMat.col(i).head(nTop).maxCoeff();         
+    }
+
+}  // end PortfolioOptimizer::getMinMaxWeights
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+void PortfolioOptimizer::downscaleWeightRanges()
+{
+    //-> Downscale the weight ranges for the individual assets to the range
+    //   covered by the top nTop weight vectors
+    const Eigen::Block<Eigen::MatrixXd> driveWeightMat  = p_myRankTable->block_DrivingWeights();
+          Eigen::Block<Eigen::MatrixXd> dscaleWeightMat = p_myRankTable->block_DownscaledWeights();
+
+    for ( size_t j = 0; j < myNumAssets; j++ )
+    {
+        // Zoom into the weight range covered by the topmost weight sets for each asset in the sorted table
+        dscaleWeightMat.col(j) = driveWeightMat.col(j) * (myMaxWeight[j] - myMinWeight[j]);
+        dscaleWeightMat.col(j).array() += myMinWeight[j];  // Shift the downscaled weight range to the minimum weight
+    }
+
+}  // end PortfolioOptimizer::downscaleWeightRanges
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+void PortfolioOptimizer::normalizeWeights()
+{
+    const Eigen::Block<Eigen::MatrixXd> dscaleWeightMat = p_myRankTable->block_DownscaledWeights();
+    Eigen::Block<Eigen::MatrixXd> normWeightMat = p_myRankTable->block_NormalizedWeights();
+    Eigen::VectorXd dscaleRowSums = dscaleWeightMat.rowwise().sum();
+
+    normWeightMat = dscaleWeightMat.array().colwise() / dscaleRowSums.array();
+
+}  // end PortfolioOptimizer::normalizeWeights
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+double PortfolioOptimizer::topWeightSpread()
+{
+    //-> Calculate the Euclidian distance between minima and maxima of the top weights
+
+    Eigen::VectorXd vMin = Eigen::Map<const Eigen::VectorXd>(myMinWeight.data(), myMinWeight.size());
+    Eigen::VectorXd vMax = Eigen::Map<const Eigen::VectorXd>(myMaxWeight.data(), myMaxWeight.size());
+
+    return (vMax - vMin).norm();  // Euclidean (L2) norm
+
+}  // end PortfolioOptimizer::topWeightSpread
+//<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+#include <Eigen/Dense>
+#include <vector>
+#include <algorithm>
+#include <iostream>
+
+void SharpeRankTable::sort()
+{
+    // Sort the table by Sharpe Ratio in descending order   
+    int sortCol = getSharpeRatioColIdx();
+
+    // Step 1: Create an std::vector of row indices
+    std::vector<size_t> indices( myNumWeightGridPoints );
+    std::iota( indices.begin(), indices.end(), 0 );   // std::iota fills the indices with [0, 1, ..., n-1].
+
+    // Step 2: Sort indices based on column 3 values (descending)
+    std::sort( indices.begin(), indices.end(), [&](size_t i1, size_t i2) 
+                                               {
+                                                   return myTable(i1, sortCol) > myTable(i2, sortCol);  // descending
+                                               }
+             );
+
+    // Step 3: Create a new sorted matrix
+    Eigen::MatrixXd sortedTable( myTable.rows(), myTable.cols() );
+
+    for ( int i = 0; i < indices.size(); i++ ) 
+    {
+        sortedTable.row(i) = myTable.row( indices[i] );
+    }
+
+    // Optional: Replace original
+    myTable = sortedTable;
+
+}  // end SharpeRankTable::sort
 //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 

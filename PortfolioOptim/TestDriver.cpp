@@ -14,7 +14,8 @@ int main( int argc, char *argv[] )
     //test_getEfficientFrontier_FromRandomDataNotWeightRelated();
     //test_GenerateMatrixWithNormalizedColumns();
     //test_CalcSimpleRelRetMatrix();
-    test_find_k();
+    //test_find_k();
+    test_SharpeRankTable();
 
     return 0;
 }

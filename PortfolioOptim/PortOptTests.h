@@ -26,3 +26,6 @@ int test_populateRiskRetVec_RandomlyNotWeightRelated();
 int test_getEfficientFrontier_FromRandomDataNotWeightRelated();
 
 int test_find_k();
+
+int test_SharpeRankTable();
+
